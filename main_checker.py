@@ -1,109 +1,136 @@
 # %%
 import os
-import traceback
+import time
 import threading
-import multiprocessing
-from list_files import FileManager
-from win32com.client import Dispatch, DispatchEx
-import docx
-from shutil import rename
 
-FOLDER = os.path.join('F:\何晖光组项目')
-# FOLDER = os.path.join('F:\\')
+from local_tools import FileManager, Recorder, get_text
+from local_profile import FOLDER, WORDS
 
 # %%
+# Init file manager
 manager = FileManager(root=FOLDER)
 manager.walker()
 manager.display()
 
 
 # %%
-# for path in manager.paths:
-#     doc = word.Documents.Open(FileName=path, Encoding=encoding)
+class Pool():
+    def __init__(self, num_max=0):
+        self.threads = []
+        self.num_max = num_max
 
-# %%
+    def append(self, thread):
+        self.threads.append(thread)
 
-MODE = 'Check'
-# MODE = 'Interface'
+    def report(self):
+        s = [t.is_alive() for t in self.threads]
+        num_threads = len(self.threads)
+        num_alive = s.count(True)
+        return f'| {num_alive} | {num_threads} | {self.num_max} |'
 
-suspects = []
-
-words = ['秘密']
-
-suspects_file_name = 'suspects.txt'
-with open(suspects_file_name, 'w') as f:
-    f.writelines([''])
-
-
-def get_text(path):
-    texts = []
-    doc = docx.Document(path)
-    all_paras = doc.paragraphs
-    for para in all_paras:
-        texts.append(para.text)
-    return '\n'.join(texts)
+    def is_done(self):
+        return not any(t.is_alive() for t in self.threads)
 
 
-def check_suspect(path, j=0, words=words):
-    print(f'Checking {j} {path}')
-    text = get_text(path)
+pool = Pool(num_max=len(manager.paths))
 
-    # with open(txt_file_name, 'ab') as f:
-    #     f.writelines([path.encode(), text.encode()])
 
-    for word in words:
+def check_suspect(path, recorder, j=0):
+    t = time.time()
+    # print(f'Checking {j} {path}')
+    try:
+        text = get_text(path)
+    except:
+        return 1
+
+    for word in recorder.words:
         if word in text:
             j = text.index(word)
             surrounding = text[j-20: j+20]
-            with open(suspects_file_name, 'ab') as f:
-                f.writelines(['\n-------\n'.encode(),
-                              path.encode(),
-                              '\n'.encode(),
-                              surrounding.encode(),
-                              '\n'.encode(), ])
-                suspects.append((path, surrounding))
+            recorder.append(dict(Name=os.path.basename(path),
+                                 Offence=word,
+                                 Folder=os.path.dirname(path),
+                                 Surrounding=surrounding))
+
+    print(f'')
+    d = time.time() - t
+    print(f'{pool.report()}, Done {j}, {path}, {d} seconds passed.')
 
 
 # %%
 if __name__ == '__main__':
+    print('Hi there.')
+    while True:
+        mode = input(
+            'Choose a mode, [c] for autocheck mode, others for interface mode:\n')
+        if mode == 'c':
+            MODE = 'Check'
+        else:
+            MODE = 'Interface'
+        break
+
     if MODE == 'Check':
-        threads = []
+        # Check files in file manager,
+        # the wrong files will be recorded.
+
+        # Init recorder
+        recorder = Recorder(words=WORDS)
+
+        # Check files using multi-threads
         for j, path in enumerate(manager.paths):
-            print(j, path)
-            # t = multiprocessing.Process(target=check_suspect, args=(path, j))
-
-            t = threading.Thread(target=check_suspect, args=(path, j))
+            # print(j, path)
+            t = threading.Thread(target=check_suspect,
+                                 args=(path, recorder, j))
             t.start()
-            threads.append(t)
-            # if j > 10:
-            #     break
-        for t in threads:
-            t.join()
+            # t.run()
+            pool.append(t)
 
-        print('--------------------')
-        for j, cell in enumerate(suspects):
-            print(j, cell[0])
-            print(cell[1])
-            print()
+        # Wait threads to finish
+        while True:
+            if pool.is_done():
+                break
+            time.sleep(1)
+        # for t in threads:
+        #     t.join()
+
+        # Display
+        recorder.display()
+
+        # Save
+        recorder.save(browser=True)
 
     if MODE == 'Interface':
+        # Interface mode,
+        # select idx of the file,
+        # the contents will be printed
         while True:
             print(f'File idx from 0 to {len(manager.paths)}')
             inp = input('>> ')
+
+            # Enter 'q' to escape
             if inp == 'q':
                 break
 
+            if inp == 'l':
+                manager.display()
+
+            # Legal check for input,
+            # convert it into int if it is legal
             try:
                 idx = int(inp)
             except ValueError:
                 print(f'Wrong input: {inp}')
                 continue
 
+            # Get path
             path = manager.paths[idx]
 
+            # Print contents
             print(f'-- {path} --')
             print(get_text(path))
             print(f'-- {path} --')
             print('')
 
+    # Stop,
+    # have a good luck
     print('Bye Bye')
