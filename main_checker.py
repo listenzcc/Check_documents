@@ -7,6 +7,7 @@ from local_tools import FileManager, Recorder, get_text
 from local_profile import FOLDER, WORDS
 
 # %%
+
 # Init file manager
 manager = FileManager(root=FOLDER)
 manager.walker()
